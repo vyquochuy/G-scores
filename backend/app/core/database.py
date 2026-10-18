@@ -20,3 +20,14 @@ async_session_factory = async_sessionmaker(
     autocommit=False,
     autoflush=False,
 )
+
+
+async def get_db_session():
+    """FastAPI dependency cung cap async database session cho moi request."""
+    async with async_session_factory() as session:
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+
