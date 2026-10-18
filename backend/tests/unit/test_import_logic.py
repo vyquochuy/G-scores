@@ -1,7 +1,7 @@
 import tempfile
 from pathlib import Path
 
-from scripts.import_scores import parse_float, read_csv_chunks
+from scripts.import_scores import inspect_csv_file, parse_float, read_csv_chunks
 
 
 def test_parse_float_valid() -> None:
@@ -55,3 +55,39 @@ def test_read_csv_chunks_preserves_leading_zeros_and_nulls() -> None:
     finally:
         if temp_path.exists():
             temp_path.unlink()
+
+
+def test_inspect_csv_file_custom_csv() -> None:
+    csv_content = (
+        "sbd,toan,ngu_van,ngoai_ngu,vat_li,hoa_hoc,sinh_hoc,lich_su,dia_li,gdcd,ma_ngoai_ngu\n"
+        "01000001,8.4,6.75,8.0,6.0,5.25,5.0,,,,N1\n"
+        "01000002,8.6,8.5,7.2,,,,7.25,6.0,8.0,N1\n"
+        "26020938,9.6,,,10.0,10.0,,,,,\n"
+    )
+
+    with tempfile.NamedTemporaryFile("w+", encoding="utf-8", delete=False, suffix=".csv") as f:
+        f.write(csv_content)
+        temp_path = Path(f.name)
+
+    try:
+        total_rows, batch_size = inspect_csv_file(temp_path)
+        assert total_rows == 3
+        # Tap du lieu nho (3 dong) nen batch size tu dong co lai bang tong so dong
+        assert batch_size == 3
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
+
+def test_inspect_csv_file_real_dataset() -> None:
+    real_path = (
+        Path(__file__).resolve().parent.parent.parent.parent
+        / "webdev-intern-assignment-3"
+        / "dataset"
+        / "diem_thi_thpt_2024.csv"
+    )
+    if real_path.exists():
+        total_rows, batch_size = inspect_csv_file(real_path)
+        assert total_rows == 1061605
+        assert batch_size == 4000
+

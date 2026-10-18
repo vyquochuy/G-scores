@@ -14,8 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import async_session_factory
 from app.models.student import Student
 
-DEFAULT_BATCH_SIZE = 4000
-TOTAL_DATASET_ROWS = 1061605
+MAX_PG_PARAMS = 65535
 SCORE_COLUMNS = (
     "toan",
     "ngu_van",
@@ -27,6 +26,44 @@ SCORE_COLUMNS = (
     "dia_li",
     "gdcd",
 )
+
+
+def inspect_csv_file(file_path: Path) -> tuple[int, int]:
+    """Doc tep CSV de tu dong xac dinh:
+
+    1. total_rows: Tong so dong du lieu thuc te trong tep CSV (khong tinh header va dong trong).
+    2. batch_size: Kich thuoc batch toi uu tinh toan dong dua tren so luong cot
+       va gioi han tham so (65,535) cua giao thuc PostgreSQL.
+    """
+    if not file_path.exists():
+        raise FileNotFoundError(f"Tep CSV khong ton tai: {file_path}")
+
+    # 1. Doc header de xac dinh so cot tu CSV
+    with open(file_path, mode="r", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        header = next(reader, None)
+        if not header:
+            return 0, 1000
+        num_csv_cols = len(header)
+
+    # 2. Dem tong so dong du lieu thuc te bang cach doc byte stream toc do cao
+    with open(file_path, mode="rb") as fb:
+        fb.readline()  # Bo qua dong header
+        total_rows = sum(1 for line in fb if line.strip())
+
+    # 3. Tinh toan batch size toi uu dong
+    # Moi ban ghi chen vao gom cac cot tu CSV cong them cot created_at do backend sinh ra
+    cols_per_record = num_csv_cols + 1
+    # Gioi han tham so cua giao thuc PostgreSQL la 65,535
+    max_safe_batch = MAX_PG_PARAMS // cols_per_record
+    # Ap dung he so an toan 0.75 va lam tron xuong boi so cua 1,000 de luong mang toi uu nhat
+    optimal_batch = (int(max_safe_batch * 0.75) // 1000) * 1000
+    if optimal_batch < 100:
+        optimal_batch = max(1, int(max_safe_batch * 0.75))
+
+    batch_size = min(optimal_batch, total_rows) if total_rows > 0 else optimal_batch
+    return total_rows, batch_size
+
 
 
 def parse_float(val: str | None) -> float | None:
@@ -44,9 +81,12 @@ def parse_float(val: str | None) -> float | None:
 
 def read_csv_chunks(
     file_path: Path,
-    chunk_size: int = DEFAULT_BATCH_SIZE,
+    chunk_size: int | None = None,
 ) -> Generator[list[dict[str, Any]], None, None]:
     """Doc luong file CSV va tao ra tung lo ban ghi hop le."""
+    if chunk_size is None or chunk_size <= 0:
+        _, chunk_size = inspect_csv_file(file_path)
+
     now_naive = datetime.now(UTC).replace(tzinfo=None)
     with open(file_path, mode="r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
@@ -76,7 +116,7 @@ def read_csv_chunks(
 
 async def import_dataset(
     file_path: Path,
-    batch_size: int = DEFAULT_BATCH_SIZE,
+    batch_size: int | None = None,
     reset: bool = False,
 ) -> int:
     """Thuc thi nap toan bo du lieu CSV vao co so du lieu PostgreSQL."""
@@ -84,8 +124,15 @@ async def import_dataset(
         print(f"Loi: Tep du lieu khong ton tai tai duong dan: {file_path}", flush=True)
         sys.exit(1)
 
+    # Tu dong xac dinh tong so dong va batch size toi uu dong tu tep CSV
+    total_dataset_rows, optimal_batch = inspect_csv_file(file_path)
+    effective_batch_size = (
+        batch_size if batch_size is not None and batch_size > 0 else optimal_batch
+    )
+
     print(f"Bat dau quy trinh import du lieu tu: {file_path}", flush=True)
-    print(f"Kich thuoc moi batch: {batch_size:,} ban ghi", flush=True)
+    print(f"Tong so dong du lieu trong tep CSV: {total_dataset_rows:,} dong", flush=True)
+    print(f"Kich thuoc moi batch duoc xac dinh: {effective_batch_size:,} ban ghi", flush=True)
     start_time = time.time()
     total_imported = 0
 
@@ -108,16 +155,22 @@ async def import_dataset(
             print("Da xoa sach du lieu cu trong bang students.", flush=True)
 
         table = Student.__table__
-        for chunk_idx, chunk in enumerate(read_csv_chunks(file_path, chunk_size=batch_size), start=1):
+        for chunk_idx, chunk in enumerate(
+            read_csv_chunks(file_path, chunk_size=effective_batch_size), start=1
+        ):
             await session.execute(insert(table), chunk)
             await session.commit()
             total_imported += len(chunk)
 
             elapsed = time.time() - start_time
             speed = total_imported / elapsed if elapsed > 0 else 0
-            percent = (total_imported / TOTAL_DATASET_ROWS) * 100
+            percent = (
+                (total_imported / total_dataset_rows) * 100
+                if total_dataset_rows > 0
+                else 100.0
+            )
             print(
-                f"-> Tien do: {total_imported:,} / {TOTAL_DATASET_ROWS:,} dong "
+                f"-> Tien do: {total_imported:,} / {total_dataset_rows:,} dong "
                 f"({percent:.1f}%) - Toc do: {speed:,.0f} dong/s (Batch #{chunk_idx})",
                 flush=True,
             )
@@ -147,8 +200,8 @@ def main() -> None:
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=DEFAULT_BATCH_SIZE,
-        help="Kich thuoc batch cho moi lan insert",
+        default=None,
+        help="Kich thuoc batch cho moi lan insert (mac dinh tu dong tinh toan theo tep CSV)",
     )
     parser.add_argument(
         "--reset",
@@ -164,3 +217,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
