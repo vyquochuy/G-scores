@@ -21,11 +21,18 @@ async function handleResponse<T>(res: Response): Promise<T> {
 }
 
 export const apiService = {
+  
   async getHealth(): Promise<{ status: string; service?: string }> {
     const res = await fetch(`${API_BASE}/health`);
     return handleResponse<{ status: string; service?: string }>(res);
   },
 
+  async getTotalStudents(): Promise<number> {
+    const res = await fetch(`${API_BASE}/students/total`)
+    const result = await handleResponse<ApiResponse<{total: number}>>(res)
+    return result.data.total
+  },
+  
   async getSubjects(): Promise<Subject[]> {
     const res = await fetch(`${API_BASE}/subjects`);
     const result = await handleResponse<ApiResponse<Subject[]>>(res);

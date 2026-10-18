@@ -1,4 +1,4 @@
-from sqlalchemy import Numeric, cast, select
+from sqlalchemy import Numeric, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.student import Student
@@ -11,6 +11,13 @@ class StudentRepository:
     async def get_by_sbd(session: AsyncSession, sbd: str) -> Student | None:
         """Tra cuu thi sinh theo so bao danh duy nhat. Su dung index idx_students_sbd."""
         stmt = select(Student).where(Student.sbd == sbd)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def total_students(session: AsyncSession) -> int:
+        """Dem tong so thi sinh"""
+        stmt = select(func.count()).select_from(Student)
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 

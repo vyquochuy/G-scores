@@ -19,6 +19,51 @@ class ReportService:
         session: AsyncSession, subject_code: str
     ) -> ScoreDistributionData:
         clean_code = subject_code.strip().lower() if subject_code else ""
+        if clean_code in ("all", "tat_ca"):
+            total_counts = {
+                ScoreBand.GE_8.value: 0,
+                ScoreBand.GE_6_LT_8.value: 0,
+                ScoreBand.GE_4_LT_6.value: 0,
+                ScoreBand.LT_4.value: 0,
+                "valid_count": 0,
+            }
+            for sub in subject_registry.list_all():
+                sub_counts = await ScoreRepository.get_distribution_by_column(
+                    session, sub.csv_column
+                )
+                for k in total_counts:
+                    total_counts[k] += sub_counts[k]
+
+            bands = [
+                ScoreBandItem(
+                    key=ScoreBand.GE_8.value,
+                    label=SCORE_BAND_LABELS[ScoreBand.GE_8],
+                    count=total_counts[ScoreBand.GE_8.value],
+                ),
+                ScoreBandItem(
+                    key=ScoreBand.GE_6_LT_8.value,
+                    label=SCORE_BAND_LABELS[ScoreBand.GE_6_LT_8],
+                    count=total_counts[ScoreBand.GE_6_LT_8.value],
+                ),
+                ScoreBandItem(
+                    key=ScoreBand.GE_4_LT_6.value,
+                    label=SCORE_BAND_LABELS[ScoreBand.GE_4_LT_6],
+                    count=total_counts[ScoreBand.GE_4_LT_6.value],
+                ),
+                ScoreBandItem(
+                    key=ScoreBand.LT_4.value,
+                    label=SCORE_BAND_LABELS[ScoreBand.LT_4],
+                    count=total_counts[ScoreBand.LT_4.value],
+                ),
+            ]
+
+            return ScoreDistributionData(
+                subjectCode="all",
+                subjectName="Tất cả môn học",
+                validScoreCount=total_counts["valid_count"],
+                bands=bands,
+            )
+
         subject = subject_registry.get(clean_code)
         if not subject:
             raise AppValidationException(

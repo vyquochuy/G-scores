@@ -5,7 +5,7 @@ import { ScoreDistribution as ScoreDistributionType, Subject } from '../../types
 
 export const ScoreDistribution: React.FC = () => {
   const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [selectedSubject, setSelectedSubject] = useState<string>('toan');
+  const [selectedSubject, setSelectedSubject] = useState<string>('all');
   const [distribution, setDistribution] = useState<ScoreDistributionType | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -18,8 +18,8 @@ export const ScoreDistribution: React.FC = () => {
         const subs = await apiService.getSubjects();
         if (isMounted) {
           setSubjects(subs);
-          if (subs.length > 0 && !subs.some((s) => s.code === selectedSubject)) {
-            setSelectedSubject(subs[0].code);
+          if (selectedSubject !== 'all' && subs.length > 0 && !subs.some((s) => s.code === selectedSubject)) {
+            setSelectedSubject('all');
           }
         }
       } catch (err: unknown) {
@@ -102,6 +102,7 @@ export const ScoreDistribution: React.FC = () => {
                 onChange={(e) => setSelectedSubject(e.target.value)}
                 className="px-4 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-800 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all pr-10 cursor-pointer shadow-xs"
               >
+                <option value="all">Tất cả môn học</option>
                 {subjects.map((sub) => (
                   <option key={sub.code} value={sub.code}>
                     {sub.name}
@@ -136,63 +137,73 @@ export const ScoreDistribution: React.FC = () => {
       {!isLoading && distribution && (
         <div className="space-y-6">
           {/* Key Metric Summary Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-xs">
-              <div className="flex items-center justify-between">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+            <div className="bg-white rounded-xl border border-slate-200/80 p-6 shadow-xs flex items-center justify-between">
+              <div>
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Tổng thí sinh có điểm
+                  {distribution.subjectCode === 'all' ? 'Tổng lượt bài thi có điểm' : 'Tổng thí sinh có điểm'}
                 </span>
-                <Users className="w-5 h-5 text-blue-600" />
+                <p className="text-2xl font-bold font-mono text-slate-900 mt-1">
+                  {distribution.validScoreCount.toLocaleString()}
+                </p>
+                <span className="text-xs text-slate-500 mt-1 block">
+                  {distribution.subjectCode === 'all' ? 'Toàn bộ 9 môn thi THPT' : `Môn thi: ${distribution.subjectName}`}
+                </span>
               </div>
-              <p className="text-2xl font-bold font-mono text-slate-900 mt-2">
-                {distribution.validScoreCount.toLocaleString()}
-              </p>
-              <span className="text-xs text-slate-500 mt-1 block">
-                Môn: {distribution.subjectName}
-              </span>
+              <div className="w-12 h-12 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                <Users className="w-6 h-6" />
+              </div>
             </div>
 
-            <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-xs">
-              <div className="flex items-center justify-between">
+            <div className="bg-white rounded-xl border border-slate-200/80 p-6 shadow-xs flex items-center justify-between">
+              <div>
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                  Đạt điểm giỏi {'(>= 8.0)'}
+                  Đạt điểm giỏi (từ 8.0 trở lên)
                 </span>
-
-                <CheckCircle className="w-5 h-5 text-emerald-600" />
+                <p className="text-2xl font-bold font-mono text-emerald-600 mt-1">
+                  {(
+                    (distribution.bands.find((b) => b.key === 'GE_8')?.count || 0)
+                  ).toLocaleString()}
+                </p>
+                <span className="text-xs text-slate-500 mt-1 block">
+                  Chiếm{' '}
+                  {(
+                    ((distribution.bands.find((b) => b.key === 'GE_8')?.count || 0) /
+                      distribution.validScoreCount) *
+                    100
+                  ).toFixed(2)}
+                  % tổng lượt thi
+                </span>
               </div>
-              <p className="text-2xl font-bold font-mono text-emerald-600 mt-2">
-                {(
-                  (distribution.bands.find((b) => b.key === 'GE_8')?.count || 0)
-                ).toLocaleString()}
-              </p>
-              <span className="text-xs text-slate-500 mt-1 block">
-                Chiếm{' '}
-                {(
-                  ((distribution.bands.find((b) => b.key === 'GE_8')?.count || 0) /
-                    distribution.validScoreCount) *
-                  100
-                ).toFixed(1)}
-                % tổng thí sinh
-              </span>
+              <div className="w-12 h-12 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                <CheckCircle className="w-6 h-6" />
+              </div>
             </div>
 
-            <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-xs">
-              <div className="flex items-center justify-between">
+            <div className="bg-white rounded-xl border border-slate-200/80 p-6 shadow-xs flex items-center justify-between">
+              <div>
                 <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
                   Khoảng điểm phổ biến nhất
                 </span>
-                <PieChart className="w-5 h-5 text-blue-600" />
+                <p className="text-lg font-bold text-slate-900 mt-1">
+                  {[...distribution.bands].sort((a, b) => b.count - a.count)[0]?.label}
+                </p>
+                <span className="text-xs text-slate-500 mt-1 block">
+                  {[...distribution.bands]
+                    .sort((a, b) => b.count - a.count)[0]
+                    ?.count.toLocaleString()}{' '}
+                  lượt (
+                  {(
+                    (([...distribution.bands].sort((a, b) => b.count - a.count)[0]?.count || 0) /
+                      distribution.validScoreCount) *
+                    100
+                  ).toFixed(2)}
+                  %)
+                </span>
               </div>
-              <p className="text-lg font-bold text-slate-900 mt-2">
-                {[...distribution.bands].sort((a, b) => b.count - a.count)[0]?.label}
-              </p>
-              <span className="text-xs text-slate-500 mt-1 block">
-                Có{' '}
-                {[...distribution.bands]
-                  .sort((a, b) => b.count - a.count)[0]
-                  ?.count.toLocaleString()}{' '}
-                thí sinh
-              </span>
+              <div className="w-12 h-12 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                <PieChart className="w-6 h-6" />
+              </div>
             </div>
           </div>
 
@@ -200,7 +211,7 @@ export const ScoreDistribution: React.FC = () => {
           <div className="bg-white rounded-xl border border-slate-200/80 p-6 shadow-xs">
             <h4 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
               <BookOpen className="w-4 h-4 text-blue-600" />
-              Biểu đồ trực quan hóa 4 khoảng phổ điểm môn {distribution.subjectName}
+              Biểu đồ trực quan hóa 4 khoảng phổ điểm {distribution.subjectCode === 'all' ? 'tất cả các môn học' : `môn ${distribution.subjectName}`}
             </h4>
 
             {/* Custom SVG / HTML Bar Chart */}
@@ -259,7 +270,6 @@ export const ScoreDistribution: React.FC = () => {
                 <thead className="bg-slate-50 text-slate-500 uppercase text-xs font-semibold border-b border-slate-200">
                   <tr>
                     <th className="px-6 py-3.5">Mức điểm (Khoảng)</th>
-                    <th className="px-6 py-3.5">Mã khoảng</th>
                     <th className="px-6 py-3.5 text-right">Số lượng thí sinh</th>
                     <th className="px-6 py-3.5 text-right">Tỷ lệ phần trăm</th>
                   </tr>
@@ -279,9 +289,6 @@ export const ScoreDistribution: React.FC = () => {
                             {band.label}
                           </span>
                         </td>
-                        <td className="px-6 py-4 font-mono text-xs text-slate-500">
-                          {band.key}
-                        </td>
                         <td className="px-6 py-4 text-right font-mono font-bold text-slate-900">
                           {band.count.toLocaleString()}
                         </td>
@@ -294,8 +301,10 @@ export const ScoreDistribution: React.FC = () => {
                 </tbody>
                 <tfoot className="bg-slate-50/80 font-bold border-t border-slate-200 text-slate-900">
                   <tr>
-                    <td colSpan={2} className="px-6 py-3.5">
-                      Tổng số thí sinh có điểm môn {distribution.subjectName}
+                    <td className="px-6 py-3.5">
+                      {distribution.subjectCode === 'all'
+                        ? 'Tổng số lượt bài thi có điểm (tất cả các môn)'
+                        : `Tổng số thí sinh có điểm môn ${distribution.subjectName}`}
                     </td>
                     <td className="px-6 py-3.5 text-right font-mono">
                       {distribution.validScoreCount.toLocaleString()}
