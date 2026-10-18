@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Trophy, AlertCircle, Medal, Award, Star, RefreshCw } from 'lucide-react';
+import { Trophy, AlertCircle, RefreshCw } from 'lucide-react';
 import { apiService } from '../../services/api';
 import { TopStudent } from '../../types';
 
@@ -31,25 +31,26 @@ export const TopStudentsGroupA: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header Banner */}
-      <div className="bg-gradient-to-r from-slate-900 to-blue-950 rounded-xl p-6 text-white shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Header Card */}
+      <div className="bg-white rounded-xl border border-slate-200/80 p-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 text-amber-400 text-xs font-bold uppercase tracking-wider mb-1">
-            <Trophy className="w-4 h-4 text-amber-400" />
-            Bảng vinh danh học thuật
+          <div className="flex items-center gap-2 text-blue-600 text-xs font-semibold uppercase tracking-wider mb-1">
+            <Trophy className="w-4 h-4 text-blue-600" />
+            Bảng xếp hạng khối A
           </div>
-          <h3 className="text-xl font-bold tracking-tight text-white">
-            Top 10 Thí Sinh Điểm Cao Nhất Khối A
+          <h3 className="text-lg font-bold tracking-tight text-slate-800">
+            Top 10 Thí Sinh Có Điểm Cao Nhất Khối A
           </h3>
-          <p className="text-sm text-slate-300 mt-1">
+          <p className="text-sm text-slate-500 mt-1">
             Tổ hợp xét tuyển Toán — Vật lí — Hóa học (chỉ xét thí sinh có đầy đủ điểm của cả 3 môn)
           </p>
         </div>
 
         <button
+          type="button"
           onClick={loadData}
           disabled={isLoading}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600/80 hover:bg-blue-600 text-white text-xs font-semibold transition-all border border-blue-400/30 cursor-pointer self-start md:self-auto disabled:opacity-50"
+          className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-all shadow-sm cursor-pointer self-start md:self-auto disabled:opacity-50"
         >
           <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
           <span>Cập nhật bảng xếp hạng</span>
@@ -75,30 +76,27 @@ export const TopStudentsGroupA: React.FC = () => {
         </div>
       )}
 
-      {/* Top 3 Podium Highlights */}
+      {/* Top 3 Highlights - Standard TailAdmin Cards with subtle accent for Rank 1 */}
       {!isLoading && top3.length >= 3 && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Top 1 - Thu khoa */}
-          <div className="bg-white rounded-xl border-2 border-amber-300 p-5 shadow-xs relative overflow-hidden order-1 md:order-2 bg-gradient-to-b from-amber-50/50 to-white">
-            <div className="absolute -top-3 -right-3 w-16 h-16 bg-amber-400/20 rounded-full flex items-center justify-center">
-              <Medal className="w-8 h-8 text-amber-500" />
-            </div>
-            <div className="flex items-center gap-2 mb-2">
-              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500 text-white shadow-xs flex items-center gap-1">
-                <Star className="w-3.5 h-3.5 fill-current" />
-                Thủ khoa toàn quốc (Hạng 1)
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {/* Top 1 */}
+          <div className="bg-white rounded-xl border border-blue-200 p-5 shadow-xs bg-blue-50/10">
+            <div className="flex items-center justify-between mb-3">
+              <span className="px-2.5 py-1 rounded-md text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                Hạng 1 (Thủ khoa)
               </span>
+              <span className="text-xs text-blue-600 font-medium">Điểm cao nhất</span>
             </div>
-            <h4 className="text-2xl font-bold font-mono text-slate-900 mt-2">
+            <h4 className="text-lg font-bold font-mono text-slate-900 mt-2">
               SBD: {top3[0].registrationNumber}
             </h4>
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="text-3xl font-extrabold font-mono text-amber-600">
+            <div className="mt-2 flex items-baseline gap-1.5">
+              <span className="text-3xl font-extrabold font-mono text-blue-600">
                 {top3[0].total.toFixed(2)}
               </span>
-              <span className="text-xs font-medium text-slate-500">tổng điểm</span>
+              <span className="text-xs text-slate-500">tổng điểm</span>
             </div>
-            <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-amber-200/80 text-center text-xs">
+            <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100 text-center text-xs">
               <div>
                 <span className="text-slate-500 block">Toán</span>
                 <span className="font-bold font-mono text-slate-800">{top3[0].math.toFixed(2)}</span>
@@ -114,24 +112,23 @@ export const TopStudentsGroupA: React.FC = () => {
             </div>
           </div>
 
-          {/* Top 2 - A khoa 1 */}
-          <div className="bg-white rounded-xl border border-slate-300 p-5 shadow-xs order-2 md:order-1 bg-gradient-to-b from-slate-50/60 to-white">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-slate-600 text-white shadow-xs flex items-center gap-1">
-                <Award className="w-3.5 h-3.5" />
-                Á khoa (Hạng 2)
+          {/* Top 2 */}
+          <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-xs">
+            <div className="flex items-center justify-between mb-3">
+              <span className="px-2.5 py-1 rounded-md text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                Hạng 2 (Á khoa)
               </span>
             </div>
-            <h4 className="text-xl font-bold font-mono text-slate-900 mt-2">
+            <h4 className="text-lg font-bold font-mono text-slate-900 mt-2">
               SBD: {top3[1].registrationNumber}
             </h4>
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="text-2xl font-extrabold font-mono text-slate-700">
+            <div className="mt-2 flex items-baseline gap-1.5">
+              <span className="text-3xl font-extrabold font-mono text-slate-800">
                 {top3[1].total.toFixed(2)}
               </span>
-              <span className="text-xs font-medium text-slate-500">tổng điểm</span>
+              <span className="text-xs text-slate-500">tổng điểm</span>
             </div>
-            <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-200 text-center text-xs">
+            <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100 text-center text-xs">
               <div>
                 <span className="text-slate-500 block">Toán</span>
                 <span className="font-bold font-mono text-slate-800">{top3[1].math.toFixed(2)}</span>
@@ -147,24 +144,23 @@ export const TopStudentsGroupA: React.FC = () => {
             </div>
           </div>
 
-          {/* Top 3 - Hang 3 */}
-          <div className="bg-white rounded-xl border border-amber-700/30 p-5 shadow-xs order-3 bg-gradient-to-b from-amber-50/30 to-white">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-700 text-white shadow-xs flex items-center gap-1">
-                <Award className="w-3.5 h-3.5" />
-                Hạng 3 toàn quốc
+          {/* Top 3 */}
+          <div className="bg-white rounded-xl border border-slate-200/80 p-5 shadow-xs">
+            <div className="flex items-center justify-between mb-3">
+              <span className="px-2.5 py-1 rounded-md text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                Hạng 3
               </span>
             </div>
-            <h4 className="text-xl font-bold font-mono text-slate-900 mt-2">
+            <h4 className="text-lg font-bold font-mono text-slate-900 mt-2">
               SBD: {top3[2].registrationNumber}
             </h4>
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="text-2xl font-extrabold font-mono text-amber-800">
+            <div className="mt-2 flex items-baseline gap-1.5">
+              <span className="text-3xl font-extrabold font-mono text-slate-800">
                 {top3[2].total.toFixed(2)}
               </span>
-              <span className="text-xs font-medium text-slate-500">tổng điểm</span>
+              <span className="text-xs text-slate-500">tổng điểm</span>
             </div>
-            <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-amber-200 text-center text-xs">
+            <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-100 text-center text-xs">
               <div>
                 <span className="text-slate-500 block">Toán</span>
                 <span className="font-bold font-mono text-slate-800">{top3[2].math.toFixed(2)}</span>
@@ -185,7 +181,7 @@ export const TopStudentsGroupA: React.FC = () => {
       {/* Full 10 Students Table */}
       {!isLoading && students.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200/80 shadow-xs overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-200/80 flex items-center justify-between">
+          <div className="px-6 py-4 border-b border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <h4 className="font-bold text-slate-800 text-sm">
               Danh sách chi tiết Top 10 thí sinh Khối A
             </h4>
@@ -196,7 +192,7 @@ export const TopStudentsGroupA: React.FC = () => {
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-slate-500 uppercase text-xs font-semibold border-b border-slate-200">
+              <thead className="bg-slate-50 text-slate-600 uppercase text-xs font-semibold border-b border-slate-200">
                 <tr>
                   <th className="px-6 py-3.5 text-center w-20">Thứ hạng</th>
                   <th className="px-6 py-3.5">Số báo danh</th>
@@ -208,24 +204,27 @@ export const TopStudentsGroupA: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-slate-200/70">
                 {students.map((student) => {
-                  let rankBadge = 'bg-slate-100 text-slate-700 font-semibold';
-                  if (student.rank === 1) rankBadge = 'bg-amber-100 text-amber-800 font-bold border border-amber-300';
-                  else if (student.rank === 2) rankBadge = 'bg-slate-200 text-slate-800 font-bold border border-slate-400';
-                  else if (student.rank === 3) rankBadge = 'bg-amber-50 text-amber-900 font-bold border border-amber-600/40';
+                  const isTop1 = student.rank === 1;
 
                   return (
                     <tr
                       key={student.registrationNumber}
                       className={`hover:bg-slate-50/80 transition-colors ${
-                        student.rank === 1 ? 'bg-amber-50/30' : ''
+                        isTop1 ? 'bg-blue-50/20' : ''
                       }`}
                     >
                       <td className="px-6 py-4 text-center">
-                        <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs ${rankBadge}`}>
+                        <span
+                          className={`inline-flex items-center justify-center w-6 h-6 rounded-md text-xs ${
+                            isTop1
+                              ? 'bg-blue-600 text-white font-bold'
+                              : 'bg-slate-100 text-slate-700 font-semibold'
+                          }`}
+                        >
                           {student.rank}
                         </span>
                       </td>
-                      <td className="px-6 py-4 font-mono font-bold text-slate-800">
+                      <td className="px-6 py-4 font-mono font-semibold text-slate-900">
                         {student.registrationNumber}
                       </td>
                       <td className="px-6 py-4 text-right font-mono text-slate-700">
