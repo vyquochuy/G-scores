@@ -22,6 +22,20 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def add_cache_control_header(request: Request, call_next):
+    response = await call_next(request)
+    if (
+        request.method == "GET"
+        and response.status_code == status.HTTP_200_OK
+        and "Cache-Control" not in response.headers
+    ):
+        response.headers["Cache-Control"] = (
+            "public, max-age=3600, s-maxage=86400, stale-while-revalidate=86400"
+        )
+    return response
+
+
 @app.exception_handler(AppEntityNotFoundException)
 async def entity_not_found_handler(
     request: Request,
