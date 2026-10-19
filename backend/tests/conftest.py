@@ -3,14 +3,16 @@ from collections.abc import AsyncGenerator
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.core.cache import cache_manager
 from app.core.database import async_engine
 from app.main import app
 
 
 @pytest.fixture(autouse=True)
 async def dispose_engine() -> AsyncGenerator[None, None]:
-    """Tu dong giai phong pool ket noi cua async_engine sau moi test de tranh loi Event loop is closed."""
+    """Tu dong giai phong pool ket noi cua async_engine va cache_manager sau moi test."""
     yield
+    await cache_manager.close()
     await async_engine.dispose()
 
 
