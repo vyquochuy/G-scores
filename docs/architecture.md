@@ -1,137 +1,69 @@
-# Kiến Trúc Hệ Thống và Quyết Định Thiết Kế (Architecture & Design Decisions)
+# Kiến trúc hệ thống G-Scores
 
-Tài liệu này trình bày chi tiết về luồng dữ liệu, cấu trúc module, các quyết định thiết kế cơ sở dữ liệu và chiến lược caching trong hệ thống G-Scores.
+## 1. Tổng quan
 
----
+### Công nghệ chính
 
-## 1. Sơ Đồ Kiến Trúc Tổng Thể
+- **Backend:** Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 Async.
+- **Database:** PostgreSQL 16.
+- **Cache:** Redis 7.
+- **Frontend:** React 18, TypeScript, Vite, Tailwind CSS.
+- **Deployment:** Vercel, Supabase PostgreSQL, Upstash Redis.
+
+## 2. Sơ đồ kiến trúc
 
 ```mermaid
 flowchart TD
-    Client([Trình duyệt người dùng])
-
-    subgraph Vercel_Platform [Nền tảng Vercel]
-        Gateway[Vercel Gateway Router]
-        Frontend[Frontend: React 18 + Vite SPA]
-        Backend[Backend: FastAPI Serverless Function]
-    end
-
-    subgraph Data_Layer [Tầng Dữ Liệu & Bộ Nhớ Đệm]
-        Redis[(Redis Cache - Upstash / Local)]
-        Postgres[(PostgreSQL 16 - Supabase / Local)]
-    end
-
-    Client -->|Yêu cầu HTTP| Gateway
-    Gateway -->|Đường dẫn tĩnh hoặc SPA: /*| Frontend
-    Gateway -->|Đường dẫn API: /api/v1/*| Backend
-
-    Backend -->|1. Kiểm tra cache| Redis
-    Redis -.->|Cache Hit| Backend
-    Redis -.->|Cache Miss hoặc Timeout 500ms| Backend
-
-    Backend -->|2. Truy vấn dữ liệu| Postgres
-    Postgres -->|3. Trả kết quả| Backend
-    Backend -.->|4. Ghi cache không đồng bộ| Redis
-    Backend -->|5. Trả phản hồi JSON| Client
+    U[Client / React] --> API[FastAPI]
+    API --> S[Service Layer]
+    S --> C{Redis Cache}
+    C -->|Cache Hit| R[Trả kết quả]
+    C -->|Cache Miss| DB[(PostgreSQL)]
+    DB --> W[Ghi cache]
+    W --> R
+    R --> U
 ```
 
----
+Luồng xử lý:
 
-## 2. Thiết Kế Bảng Phẳng (Wide Table) cho Điểm Thi
+1. Client gửi request đến REST API.
+2. Service Layer xử lý nghiệp vụ và kiểm tra Redis nếu endpoint hỗ trợ cache.
+3. Khi cache hit, hệ thống trả dữ liệu đã lưu.
+4. Khi cache miss, hệ thống truy vấn PostgreSQL và lưu kết quả vào Redis.
+5. Nếu Redis gặp lỗi, hệ thống bỏ qua cache và sử dụng PostgreSQL trực tiếp.
 
-### Hiện trạng và vấn đề
-Tập dữ liệu điểm thi tốt nghiệp THPT 2024 có 1,061,605 thí sinh dự thi tối đa 9 môn học và 1 cột mã ngoại ngữ. Có hai hướng mô hình hóa quan hệ:
+Cache không thay thế PostgreSQL. PostgreSQL vẫn là nguồn dữ liệu chính thức.
 
-1. **Chuẩn hóa dọc (EAV / Normalized Table):**
-   - Bảng `students` (`id`, `sbd`) và bảng `student_scores` (`student_id`, `subject_code`, `score`).
-   - Tổng số bản ghi sinh ra: ~7.5 triệu dòng.
-   - Nhược điểm: Để tính tổng điểm 3 môn Khối A (Toán + Vật lí + Hóa học), câu truy vấn buộc phải `JOIN` bảng `student_scores` 3 lần (hoặc dùng `GROUP BY` kèm `CASE WHEN`), gây chi phí lớn cho bộ nhớ và CPU khi sắp xếp trên tập dữ liệu lớn.
+## 3. Thiết kế dữ liệu
 
-2. **Bảng phẳng (Wide Table - Lựa chọn thực tế):**
-   - Bảng `students` gồm: `id`, `sbd`, `toan`, `ngu_van`, `ngoai_ngu`, `vat_li`, `hoa_hoc`, `sinh_hoc`, `lich_su`, `dia_li`, `gdcd`, `ma_ngoai_ngu`, `created_at`.
-   - Tổng số bản ghi: đúng 1,061,605 dòng.
+### Bảng `students`
 
-### Đánh giá và Trade-off
-- **Ưu điểm:**
-  - Thao tác bulk insert diễn ra nhanh hơn do chỉ tương tác trên 1 bảng duy nhất.
-  - Tính tổng điểm Khối A (`toan + vat_li + hoa_hoc`) được thực hiện trực tiếp trên từng dòng dữ liệu mà không cần bất kỳ phép `JOIN` nào.
-- **Nhược điểm (Chấp nhận được):** Tồn tại các giá trị `NULL` ở các môn thí sinh không dự thi (ví dụ thí sinh thi bài thi Khoa học Tự nhiên thì các cột Khoa học Xã hội là `NULL`). Với dữ liệu thi cử có cấu trúc cố định và không thay đổi theo thời gian, chi phí lưu trữ cho giá trị `NULL` trong PostgreSQL là không đáng kể (chỉ tốn bitmask trong tuple header).
+Lưu thông tin thí sinh và điểm thi theo mô hình wide table: mỗi thí sinh tương ứng một bản ghi, các môn thi được lưu trong những cột riêng.
 
----
+Các trường chính gồm:
 
-## 3. Phân Tách Nghiệp Vụ Hướng Đối Tượng (OOP Domain Modeling)
+- `sbd`: số báo danh, được lưu dưới dạng chuỗi để giữ nguyên định dạng.
+- Các cột điểm: `toan`, `ngu_van`, `ngoai_ngu`, `vat_li`, `hoa_hoc`, `sinh_hoc`, `lich_su`, `dia_li`, `gdcd`.
 
-Codebase phân tách rành mạch giữa mô hình ORM (SQLAlchemy), schema truyền nhận (Pydantic) và mô hình nghiệp vụ thuần túy (Domain Model):
+Điểm chưa có được biểu diễn bằng `NULL`, không tự động chuyển thành `0`, nhằm phân biệt dữ liệu thiếu với điểm số thực tế.
 
-```
-backend/app/
-├── domain/                  # Nghiệp vụ lõi (thuần Python, không phụ thuộc framework)
-│   ├── models/
-│   │   ├── subject.py       # Entity Subject: mã, tên, cột CSV, validate điểm
-│   │   ├── exam_group.py    # Abstract ExamGroup và lớp cụ thể GroupA
-│   │   └── registry.py      # SubjectRegistry quản lý danh mục môn học
-│   └── rules/
-│       └── scoring.py       # ScoreBand enum, phân loại 4 khoảng phổ điểm
-├── models/                  # SQLAlchemy ORM mapped vào database tables
-│   ├── student.py
-│   └── statistic.py
-├── schemas/                 # Pydantic v2 schemas phục vụ request/response validation
-│   ├── student.py
-│   ├── score.py
-│   └── report.py
-└── services/                # Điều phối giữa Domain, Repository và Cache
-```
+**Lý do chọn wide table:** dữ liệu có cấu trúc cố định, chủ yếu phục vụ tra cứu theo số báo danh và thống kê theo môn. Cách lưu này giảm nhu cầu JOIN giữa nhiều bảng điểm khi thực hiện các truy vấn phổ biến.
 
-### Lợi ích kỹ thuật
-- **Độc lập framework:** Logic phân khoảng điểm hay tính tổng tổ hợp Khối A được kiểm thử độc lập thông qua Unit Test mà không cần dựng database giả lập hay khởi động FastAPI instance.
-- **Mở rộng linh hoạt:** Khi cần bổ sung tổ hợp môn mới (ví dụ Khối B: Toán - Hóa - Sinh, Khối C: Văn - Sử - Địa), hệ thống chỉ cần kế thừa lớp trừu tượng `ExamGroup` mà không ảnh hưởng đến cấu trúc bảng hiện tại.
+### Bảng `system_metrics`
 
----
+Lưu các chỉ số tổng hợp cấp hệ thống, chẳng hạn tổng số hồ sơ. Các giá trị đã được tính trước giúp tránh thực hiện `COUNT(*)` trên toàn bộ bảng `students` mỗi khi cần hiển thị số liệu tổng quan.
 
-## 4. Tối Ưu Truy Vấn với Bảng Thống Kê (Pre-aggregated Tables)
+### Bảng `score_statistics`
 
-### Vấn đề
-Dữ liệu kỳ thi THPT 2024 là **dữ liệu lịch sử (read-only)**. Việc quét lại 1,061,605 bản ghi mỗi khi có yêu cầu:
-- Đếm tổng số thí sinh (`SELECT count(*) FROM students`)
-- Thống kê 4 khoảng điểm của 9 môn học qua `CASE WHEN`
-là lãng phí tài nguyên CPU của database server.
+Lưu số liệu thống kê theo môn học và khoảng điểm. API có thể đọc kết quả tổng hợp thay vì quét và nhóm toàn bộ dữ liệu gốc trong mỗi request.
 
-### Thiết kế
-Hệ thống bổ sung 2 bảng chuyên biệt:
-1. `system_metrics`:
-   - `metric_key` (VARCHAR PK): ví dụ `"total_students"`.
-   - `metric_value` (INTEGER): `1061605`.
-   - `updated_at` (TIMESTAMP).
-2. `score_statistics`:
-   - `subject_code` (VARCHAR UNIQUE INDEX): mã môn học (`toan`, `ngu_van`, ...).
-   - `ge_8`, `ge_6_lt_8`, `ge_4_lt_6`, `lt_4`: số lượng thí sinh theo 4 khoảng điểm.
-   - `valid_count`: tổng số bài thi có điểm của môn.
+Các bảng tổng hợp cần được cập nhật lại sau khi dữ liệu nguồn thay đổi.
 
-### Cơ chế Fallback an toàn (Graceful Degradation ở tầng CSDL)
-Trong `StudentRepository` và `ScoreRepository`:
-```python
-# Ví dụ logic tại ScoreRepository
-stat = await StatisticRepository.get_score_statistic(session, subject_code)
-if stat is not None:
-    return stat  # Đọc nhanh từ bảng thống kê (1 dòng có index)
+## 4. Tối ưu truy vấn PostgreSQL
 
-# Fallback: Quét conditional aggregation từ bảng gốc nếu chưa có thống kê
-return await ScoreRepository.get_distribution_by_column(session, column_name)
-```
+### Chỉ mục Top Group A
 
----
-
-## 5. Partial Functional Index cho Top 10 Khối A
-
-### Vấn đề
-Biểu thức tính tổng điểm 3 môn Khối A: `(toan + vat_li + hoa_hoc)`.
-Trong hơn 1 triệu thí sinh, chỉ có 343,800 thí sinh dự thi đầy đủ cả 3 môn này. Nếu dùng index thông thường trên từng cột, PostgreSQL vẫn phải:
-1. Quét tìm các dòng thỏa mãn điều kiện `toan IS NOT NULL AND vat_li IS NOT NULL AND hoa_hoc IS NOT NULL`.
-2. Tính toán giá trị tổng điểm cho 343,800 dòng.
-3. Thực hiện giải thuật sắp xếp (Top-N Sort) để lấy 10 dòng cao nhất.
-
-### Giải pháp: Partial Functional Index
-Tạo index trên chính biểu thức tính toán, kết hợp điều kiện lọc cục bộ:
+Truy vấn xếp hạng Group A00 sử dụng tổng điểm ba môn Toán, Vật lí và Hóa học. Để hỗ trợ truy vấn này, hệ thống sử dụng partial functional index:
 
 ```sql
 CREATE INDEX idx_students_group_a_sum
@@ -144,27 +76,100 @@ WHERE toan IS NOT NULL
   AND hoa_hoc IS NOT NULL;
 ```
 
-### Cơ chế hoạt động
-- **Functional:** Cây B-Tree lưu sẵn giá trị tổng điểm đã tính trước theo thứ tự giảm dần.
-- **Partial (`WHERE`):** Index chỉ đánh trên 343,800 dòng có đủ điểm 3 môn, giúp giảm dung lượng index trên đĩa và trong bộ đệm RAM (Shared Buffers).
-- **Tie-break (`sbd ASC`):** Kết hợp số báo danh tăng dần ngay trong cấu trúc index.
-- **Kết quả query plan:** Lệnh `EXPLAIN (ANALYZE, BUFFERS)` xác nhận truy vấn chuyển hoàn toàn sang `Index Scan using idx_students_group_a_sum` và dừng lại ngay khi đọc đủ 10 bản ghi (`LIMIT 10`), triệt tiêu hoàn toàn nút `Sort`.
+**Lợi ích thiết kế:**
 
----
+- Index lưu giá trị biểu thức tổng điểm để hỗ trợ sắp xếp theo điểm Group A.
+- Điều kiện `WHERE` loại các hồ sơ thiếu điểm một trong ba môn khỏi index.
+- `sbd ASC` tạo tiêu chí sắp xếp phụ khi tổng điểm bằng nhau.
 
-## 6. Chiến Lược Caching Redis
+Index này hướng đến truy vấn lấy các thí sinh có tổng điểm cao nhất, đồng thời giảm lượng dữ liệu cần sắp xếp khi PostgreSQL có thể tận dụng index.
 
-### 1. Mô hình Cache-Aside
-Hệ thống sử dụng lớp `CacheManager` tại `app/core/cache.py`:
-- Khi có request: Backend kiểm tra Redis trước. Nếu có dữ liệu (Cache Hit), parse JSON và trả về ngay.
-- Nếu không có (Cache Miss): Truy vấn PostgreSQL, serialize dữ liệu và lưu vào Redis kèm TTL.
+Hiệu quả thực tế phụ thuộc vào câu SQL, statistics của bảng và query planner. Có thể kiểm tra bằng:
 
-### 2. Chính sách phân bổ khóa và TTL
-- Tổng thí sinh: `students:total:v1`, TTL 24 giờ.
-- Phổ điểm từng môn: `reports:distribution:v1:{subject_code}`, TTL 24 giờ.
-- Top 10 Khối A: `students:top_a:v1:{limit}`, TTL 24 giờ.
-- Key versioning (`v1`): Hỗ trợ vô hiệu hóa toàn bộ cache phiên bản cũ khi cập nhật logic nghiệp vụ mà không cần xóa từng key.
+```sql
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT
+    sbd,
+    toan,
+    vat_li,
+    hoa_hoc,
+    toan + vat_li + hoa_hoc AS total_score
+FROM students
+WHERE toan IS NOT NULL
+  AND vat_li IS NOT NULL
+  AND hoa_hoc IS NOT NULL
+ORDER BY total_score DESC, sbd ASC
+LIMIT 10;
+```
 
-### 3. Graceful Degradation (Bảo vệ tiến trình API)
-- **Timeout kết nối ngắn (500ms):** Ngăn việc tiến trình API bị giữ socket chờ đợi khi Redis gặp sự cố hoặc nghẽn mạng.
-- **Bắt ngoại lệ an toàn:** Mọi lỗi kết nối (`RedisError`, `TimeoutError`, `OSError`) đều được ghi log dạng cảnh báo và trả về `None`, để ứng dụng fallback truy vấn PostgreSQL. API luôn trả kết quả chính xác thay vì lỗi HTTP 500.
+Cần kiểm tra execution plan thực tế trước khi kết luận PostgreSQL đã sử dụng index hoặc loại bỏ thao tác Sort.
+
+## 5. Redis Cache
+
+G-Scores sử dụng mô hình **cache-aside**: ứng dụng chủ động đọc cache trước, truy vấn PostgreSQL khi cache miss và ghi kết quả trở lại Redis.
+
+### Cache policy
+
+| Thành phần    | Thiết kế                          |
+| ------------- | --------------------------------- |
+| Key           | Có namespace và version `v1`      |
+| TTL           | 24 giờ                            |
+| Redis timeout | 500 ms                            |
+| Cache miss    | Truy vấn PostgreSQL               |
+| Redis lỗi     | Bỏ qua cache, truy vấn PostgreSQL |
+
+Các cache key chính:
+
+- `students:total:v1`
+- `reports:distribution:v1:{subject_code}`
+- `students:top_a:v1:{limit}`
+
+Namespace và version giúp phân biệt loại dữ liệu, tham số truy vấn và phiên bản cache. Khi thay đổi định dạng kết quả, có thể nâng version key để tránh đọc dữ liệu cache cũ.
+
+### Xử lý lỗi và tính nhất quán
+
+Redis là lớp tối ưu hiệu năng, không phải nguồn dữ liệu chính. Khi Redis không khả dụng hoặc xảy ra timeout, ứng dụng cần tiếp tục xử lý bằng PostgreSQL nếu database vẫn hoạt động.
+
+TTL giúp giới hạn thời gian tồn tại của cache, nhưng không tự bảo đảm dữ liệu được cập nhật ngay sau khi nguồn thay đổi. Nếu dữ liệu được import hoặc tổng hợp lại, cần có cơ chế xóa cache hoặc thay đổi version key phù hợp.
+
+Fallback sang PostgreSQL cũng có nghĩa là tải database có thể tăng khi Redis lỗi hoặc cache miss hàng loạt.
+
+## 6. Tổ chức Backend
+
+Backend được tổ chức theo trách nhiệm để tách HTTP handling khỏi nghiệp vụ và truy cập dữ liệu:
+
+- **API / Router:** nhận request, kiểm tra tham số và trả HTTP response.
+- **Service Layer:** điều phối nghiệp vụ, truy vấn dữ liệu và áp dụng cache policy.
+- **Data Access:** thực hiện truy vấn PostgreSQL thông qua SQLAlchemy.
+- **Domain Model:** biểu diễn các đối tượng nghiệp vụ liên quan đến thí sinh và điểm thi.
+- **Pydantic Schemas:** xác thực dữ liệu đầu vào và định nghĩa cấu trúc response.
+
+Cách tổ chức này giúp giới hạn trách nhiệm của từng thành phần và hỗ trợ kiểm thử độc lập. Domain Model và Pydantic Schemas có vai trò khác nhau: một bên phục vụ mô hình nghiệp vụ, bên còn lại phục vụ validation và API contract.
+
+## 7. API chính
+
+| Endpoint                                   | Chức năng                                        |
+| ------------------------------------------ | ------------------------------------------------ |
+| `GET /api/v1/health`                       | Kiểm tra trạng thái API                          |
+| `GET /api/v1/subjects`                     | Danh sách môn thi                                |
+| `GET /api/v1/scores/{registration_number}` | Tra cứu điểm theo số báo danh                    |
+| `GET /api/v1/reports/score-distribution`   | Phân bố điểm theo môn                            |
+| `GET /api/v1/students/top-a`               | Danh sách thí sinh có tổng điểm Group A cao nhất |
+| `GET /api/v1/students/total`               | Tổng số hồ sơ                                    |
+
+Các endpoint cần thống nhất response schema, xử lý trường hợp không tìm thấy dữ liệu và trả mã HTTP phù hợp.
+
+## 8. Các trade-off chính
+
+| Quyết định          | Lợi ích                                           | Đánh đổi                                               |
+| ------------------- | ------------------------------------------------- | ------------------------------------------------------ |
+| Wide table          | Tra cứu điểm nhiều môn thuận tiện                 | Thay đổi cấu trúc môn thi cần điều chỉnh schema        |
+| Pre-aggregation     | Giảm chi phí truy vấn thống kê lặp lại            | Phải cập nhật số liệu khi nguồn thay đổi               |
+| Functional index    | Hỗ trợ truy vấn xếp hạng theo biểu thức tổng điểm | Tốn dung lượng index và tăng chi phí ghi dữ liệu       |
+| Redis cache-aside   | Giảm truy vấn lặp lại đến PostgreSQL              | Phát sinh vấn đề TTL, invalidation và cache miss       |
+| PostgreSQL fallback | Giữ khả năng phục vụ khi Redis lỗi                | Database có thể chịu tải tăng trong thời gian fallback |
+
+## 9. Tài liệu liên quan
+
+- [Data Pipeline](data-pipeline.md): quy trình import, tổng hợp và kiểm tra dữ liệu.
+- [Deployment](deployment.md): cấu hình và triển khai ứng dụng.

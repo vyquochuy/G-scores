@@ -1,33 +1,90 @@
-# Hướng Dẫn Triển Khai Thực Tế (Deployment Guide)
+# Hướng Dẫn Cấu Hình và Triển Khai
 
-Tài liệu này hướng dẫn chi tiết quy trình triển khai hệ thống G-Scores dưới hai hình thức:
-
-1. **Triển khai Serverless trên nền tảng Vercel** (Cấu hình đang chạy thực tế trên production).
-2. **Khởi chạy môi trường cục bộ (Local Development)** không thông qua Docker.
+Tài liệu hướng dẫn cấu hình môi trường, khởi chạy ứng dụng cục bộ và triển khai hệ thống G-Scores lên nền tảng đám mây (Vercel, Supabase, Upstash).
 
 ---
 
-## 1. Triển Khai Fullstack Monorepo Lên Vercel
+## 1. Cấu Hình Biến Môi Trường
 
-Dự án sử dụng file cấu hình [`vercel.json`](../vercel.json) tại thư mục gốc để quản lý đồng thời hai dịch vụ trong cùng một repository:
+Hệ thống sử dụng các biến môi trường sau cho backend và frontend:
 
-### 1.1. Cơ chế Định Tuyến (Routing & Rewrites)
-
-- **Tầng Backend:** Định vị tại thư mục `backend/`, chạy dưới dạng FastAPI Serverless Function. Toàn bộ các HTTP request có tiền tố `/api` hoặc `/api/(.*)` được Vercel tự động chuyển tiếp tới service `backend`. File `api/index.py` đóng vai trò entrypoint nạp `app` từ package `app.main`.
-- **Tầng Frontend:** Định vị tại thư mục `frontend/`, đóng gói tĩnh bằng Vite. Các route không bắt đầu bằng `/api` được chuyển tiếp về `/index.html` để phục vụ cơ chế định tuyến Single Page Application (SPA).
-- **Lợi ích kiến trúc:** Cả frontend và backend dùng chung domain (`https://g-scores-amber.vercel.app`), loại bỏ hoàn toàn các cấu hình phức tạp về CORS preflight (`OPTIONS` request) và giảm round-trip time.
-
-### 1.2. Cấu Hình Biến Môi Trường (Environment Variables trên Vercel)
-
-| Tên biến                | Giá trị mẫu                                                                               | Mục đích                                                        |
-| :---------------------- | :---------------------------------------------------------------------------------------- | :-------------------------------------------------------------- |
-| `DATABASE_URL`          | `postgresql://postgres.[ref]:[pwd]@aws-0-[region].pooler.supabase.com:5432/postgres`      | Kết nối PostgreSQL qua Supabase Transaction Pooler (PgBouncer)  |
-| `REDIS_URL`             | `rediss://default:[token]@[endpoint].upstash.io:6379`                                     | Kết nối Redis Cloud / Upstash phục vụ Cache Layer               |
-| `REDIS_TIMEOUT_SECONDS` | `0.5`                                                                                     | Giới hạn timeout 500ms cho kết nối Redis (Graceful Degradation) |
-| `BACKEND_CORS_ORIGINS`  | `["https://g-scores-amber.vercel.app", "http://localhost:5173", "http://localhost:3000"]` | Cấu hình danh sách domain được phép gọi API                     |
-| `VITE_API_BASE_URL`     | `/api/v1`                                                                                 | Đường dẫn API tương đối dùng cho Frontend                       |
-
-> **Lưu ý về Transaction Pooling với asyncpg:**
-> Trong môi trường Serverless, các container function được khởi tạo và hủy liên tục. Việc kết nối trực tiếp cổng `5432` không qua pooler dễ gây cạn kiệt connection pool của PostgreSQL. Khuyến nghị sử dụng connection pooler của Supabase (`aws-0-[region].pooler.supabase.com` qua cổng `5432` hoặc `6543`). Driver `asyncpg` tự động vô hiệu hóa statement cache để tương thích với chế độ Transaction Pooling của PgBouncer.
+| Tên biến                | Môi trường | Giá trị mẫu / Mô tả                                                                                                                                                                |
+| :---------------------- | :--------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`          | Backend    | `postgresql+asyncpg://postgres:postgres@localhost:5432/gscores` (Local)<br>`postgresql://postgres.[ref]:[pwd]@aws-0-[region].pooler.supabase.com:5432/postgres` (Cloud / Supabase) |
+| `REDIS_URL`             | Backend    | `redis://localhost:6379/0` (Local)<br>`rediss://default:[token]@[endpoint].upstash.io:6379` (Cloud / Upstash)                                                                      |
+| `REDIS_TIMEOUT_SECONDS` | Backend    | Mặc định `0.5` (500ms) để kích hoạt cơ chế Graceful Degradation                                                                                                                    |
+| `BACKEND_CORS_ORIGINS`  | Backend    | `["http://localhost:5173", "http://localhost:3000"]` (Định dạng JSON mảng)                                                                                                         |
+| `VITE_API_BASE_URL`     | Frontend   | `/api/v1` (Khi deploy cùng domain trên Vercel hoặc qua reverse proxy) hoặc `http://localhost:8000/api/v1` (Khi chạy dev độc lập)                                                   |
 
 ---
+
+## 2. Khởi Chạy Cục Bộ (Không Dùng Docker)
+
+### 2.1. Yêu cầu hệ thống
+
+- Python 3.12+
+- Node.js 18+
+- PostgreSQL 16
+- Redis 7 (tùy chọn, hệ thống tự fallback sang PostgreSQL nếu không có Redis)
+
+### 2.2. Khởi chạy Backend
+
+```bash
+cd backend
+
+# Khởi tạo môi trường ảo và cài đặt thư viện
+python -m venv venv
+# Windows:
+.\venv\Scripts\activate
+# Linux/macOS:
+# source venv/bin/activate
+
+pip install -r requirements.txt
+
+# Cấu hình file .env từ mẫu
+cp .env.example .env
+
+# Chạy migration để khởi tạo schema database
+alembic upgrade head
+
+# Nạp dữ liệu và tổng hợp số liệu thống kê ban đầu
+python scripts/import_scores.py
+python scripts/aggregate_statistics.py --verify
+
+# Khởi động backend API server
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+- API Docs: `http://localhost:8000/docs`
+- Health check: `http://localhost:8000/api/v1/health`
+
+### 2.3. Khởi chạy Frontend
+
+```bash
+cd frontend
+
+npm install
+npm run dev
+```
+
+- Truy cập giao diện: `http://localhost:5173`
+
+---
+
+## 3. Triển Khai Fullstack Monorepo Lên Vercel
+
+Dự án được cấu hình sẵn để triển khai đồng thời cả Frontend và Backend Serverless trên cùng một Vercel Project qua tệp [`vercel.json`](../vercel.json):
+
+### 3.1. Cơ chế Routing và Rewrites
+
+- **Backend Function:** Mã nguồn đặt tại `backend/`, chạy dưới dạng FastAPI Serverless Function. Tệp `backend/api/index.py` là entrypoint nạp `app` từ `app.main`. Các request có tiền tố `/api/(.*)` được chuyển trực tiếp vào service backend.
+- **Frontend SPA:** Mã nguồn đặt tại `frontend/`, đóng gói tĩnh qua Vite. Tất cả route không bắt đầu bằng `/api` được rewrite về `/index.html`.
+- **Lợi thế:** Cả frontend và backend hoạt động chung origin, loại bỏ chi phí CORS preflight (`OPTIONS` request) và đơn giản hóa kiến trúc mạng.
+
+### 3.2. Lưu ý về Database Connection Pooling trong Serverless
+
+Trong môi trường Serverless, các function instance khởi tạo và giải phóng liên tục:
+
+1. **Transaction Pooling (PgBouncer):** Cần kết nối PostgreSQL qua Supabase Transaction Pooler (cổng `5432` hoặc `6543`) để tránh cạn kiệt connection pool.
+2. **Cấu hình `asyncpg`:** Trong `backend/app/core/database.py`, hệ thống đã cấu hình vô hiệu hóa cache câu lệnh chuẩn bị (`statement_cache_size=0`, `prepared_statement_cache_size=0`) và sinh tên ngẫu nhiên cho prepared statement nhằm ngăn ngừa lỗi `DuplicatePreparedStatementError` khi chạy qua PgBouncer.
+3. **NullPool:** Khi nhận diện biến môi trường Serverless (`VERCEL=1`), SQLAlchemy tự động sử dụng `NullPool` để đóng kết nối ngay sau mỗi request.
