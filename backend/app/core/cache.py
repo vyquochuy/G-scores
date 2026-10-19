@@ -12,8 +12,15 @@ import json
 import logging
 from typing import Any
 
-from redis.asyncio import ConnectionPool, Redis
-from redis.exceptions import RedisError
+try:
+    from redis.asyncio import ConnectionPool, Redis
+    from redis.exceptions import RedisError
+    REDIS_AVAILABLE = True
+except ImportError:
+    ConnectionPool = None  # type: ignore[assignment,misc]
+    Redis = None  # type: ignore[assignment,misc]
+    RedisError = Exception  # type: ignore[assignment,misc]
+    REDIS_AVAILABLE = False
 
 from app.core.config import settings
 
@@ -46,7 +53,7 @@ class CacheManager:
 
     def _get_client(self) -> Redis | None:
         """Khoi tao ket noi Redis client voi co che lazy initialization va timeout chat che."""
-        if not settings.REDIS_URL:
+        if not settings.REDIS_URL or not REDIS_AVAILABLE:
             return None
 
         if self._client is None:
