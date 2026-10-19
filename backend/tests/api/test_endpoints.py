@@ -134,3 +134,25 @@ async def test_get_top_a_students(client: AsyncClient) -> None:
     totals = [s["total"] for s in students]
     for i in range(len(totals) - 1):
         assert totals[i] >= totals[i + 1]
+
+
+@pytest.mark.asyncio
+async def test_get_total_students_endpoint(client: AsyncClient) -> None:
+    response = await client.get("/api/v1/students/total")
+    assert response.status_code == 200
+    body = response.json()
+    assert "data" in body
+    assert body["data"]["total"] == 1061605
+
+
+@pytest.mark.asyncio
+async def test_get_score_distribution_all_subjects(client: AsyncClient) -> None:
+    response = await client.get("/api/v1/reports/score-distribution?subjectCode=all")
+    assert response.status_code == 200
+    body = response.json()
+    assert "data" in body
+    data = body["data"]
+    assert data["subjectCode"] == "all"
+    assert data["validScoreCount"] > 0
+    assert len(data["bands"]) == 4
+

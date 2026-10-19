@@ -1,16 +1,28 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.v1.router import api_router
+from app.core.cache import cache_manager
 from app.core.config import settings
 from app.core.exceptions import AppEntityNotFoundException, AppValidationException
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    await cache_manager.close()
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version="1.0.0",
+    lifespan=lifespan,
 )
+
 
 app.add_middleware(
     CORSMiddleware,

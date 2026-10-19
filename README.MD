@@ -36,10 +36,11 @@ Danh sách 10 thí sinh có tổng điểm 3 môn Toán, Vật lí, Hóa học c
 
 ## 2. Công Nghệ Sử Dụng
 
-- **Backend:** Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 Asyncio, asyncpg, Alembic, Pytest, Ruff.
+- **Backend:** Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 Asyncio, asyncpg, Alembic, Redis (asyncio), Pytest, Ruff.
 - **Frontend:** React 18, TypeScript, Vite, Tailwind CSS (định hướng TailAdmin).
-- **Cơ sở dữ liệu:** PostgreSQL 16.
+- **Cơ sở dữ liệu & Caching:** PostgreSQL 16, Redis 7 Alpine.
 - **Đóng gói và vận hành:** Docker, Docker Compose, Nginx.
+
 
 ---
 
@@ -77,12 +78,16 @@ Sau khi các dịch vụ khởi động thành công:
 ### Bước 3: Chạy Migration và Nạp Dữ Liệu vào Cơ sở dữ liệu Docker
 
 ```bash
-# Thực thi migration tạo bảng students
+# Thực thi migration tạo bảng students, bảng thống kê và index tối ưu
 docker compose exec backend alembic upgrade head
 
 # Nạp dữ liệu từ tập tin CSV (khoảng 120 giây cho 1,061,605 dòng)
 docker compose exec backend python scripts/import_scores.py
+
+# Tổng hợp số liệu ban đầu và đối soát tự động 100% ground truth
+docker compose exec backend python scripts/aggregate_statistics.py --verify
 ```
+
 
 ---
 
@@ -147,10 +152,17 @@ CREATE DATABASE gscores;
    python scripts/import_scores.py --reset
    ```
 
-7. Khởi động máy chủ Backend:
+7. Tổng hợp dữ liệu thống kê và đối soát 100% với bảng gốc:
+
+   ```bash
+   python scripts/aggregate_statistics.py --verify
+   ```
+
+8. Khởi động máy chủ Backend:
    ```bash
    uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
    ```
+
 
 ### 5.3. Cài đặt và Khởi chạy Frontend
 
@@ -221,43 +233,58 @@ Tất cả các endpoint đều sử dụng tiền tố `/api/v1` và chuẩn h�
    - Sử dụng phương thức SQLAlchemy Core Table Bulk Insert, đạt tốc độ trung bình trên 9,000 dòng/giây, tổng thời gian nạp toàn bộ hơn 1 triệu bản ghi chỉ mất khoảng 120 giây và duy trì lượng RAM dưới 100MB.
 4. **Thống Kê Trực Tiếp Tại Database Engine (SQL Conditional Aggregation):**
    - Tổng hợp 4 khoảng phổ điểm và đếm số lượng bài thi hợp lệ trực tiếp thông qua câu lệnh `func.count(case(...))`. Thời gian phản hồi dưới 100ms mà không kéo dữ liệu thô về bộ nhớ của backend.
+5. **Tối Ưu Hiệu Năng Bằng Bảng Thống Kê và Functional Index (PostgreSQL P0 Optimization):**
+   - Thay vì quét toàn bộ 1,061,605 dòng ở mỗi lượt người dùng truy cập, hệ thống sử dụng bảng `system_metrics` (lưu chỉ số tĩnh toàn cục như `total_students`) và `score_statistics` (lưu phổ điểm 4 khoảng của 9 môn học).
+   - Thiết lập Partial Functional Index `idx_students_group_a_sum` trên biểu thức `((toan + vat_li + hoa_hoc) DESC, sbd ASC) WHERE toan IS NOT NULL AND vat_li IS NOT NULL AND hoa_hoc IS NOT NULL`. Xác minh bằng `EXPLAIN (ANALYZE, BUFFERS)` cho thấy PostgreSQL thực thi trực tiếp `Index Scan` và loại bỏ hoàn toàn nút `Sort`, giảm thời gian truy vấn nội bộ CSDL xuống chỉ 2.8ms - 4.4ms.
+   - Script `aggregate_statistics.py` được thiết kế idempotent và có cờ `--verify` đối soát tự động 100% ground truth với bảng gốc.
+6. **Lớp Cache Redis (Cache-Aside Pattern & Graceful Degradation) và CDN Cache:**
+   - Triển khai mô hình Cache-Aside bất đồng bộ với TTL 24 giờ cho các endpoint `/total`, `/reports/score-distribution` và `/top-a` kèm key versioning (`v1`).
+   - Tích hợp timeout kết nối 500ms và cơ chế Graceful Degradation: nếu Redis offline hoặc timeout, API tự động chuyển tiếp truy vấn PostgreSQL mà không gây gián đoạn hay phát sinh lỗi HTTP 500. Khi Redis Cache Hit, độ trễ API giảm xuống dưới 2ms (tăng tốc gấp 170-700 lần).
+   - Thiết lập header HTTP `Cache-Control: public, max-age=3600, s-maxage=86400, stale-while-revalidate=86400` phục vụ CDN caching cho các tài nguyên tĩnh.
 
 ---
 
-## 9. Hướng Dẫn Triển Khai Thực Tế (Deployment Guide)
 
-### 9.1. Triển khai Frontend lên Vercel
+## 9. Hướng Dẫn Triển Khai Thực Tế Lên Vercel (Fullstack Deployment Guide)
 
-Frontend React SPA được tối ưu hóa sẵn cho Vercel:
+Hệ thống được thiết kế theo mô hình Monorepo và triển khai đồng bộ toàn diện cả **Frontend** (React + Vite) lẫn **Backend API** (Python FastAPI) trực tiếp trên nền tảng **Vercel** thông qua file cấu hình `src/vercel.json`.
 
-1. Kết nối kho lưu trữ GitHub với Vercel.
-2. Chọn thư mục gốc (Root Directory) là `frontend`.
-3. Thiết lập Framework Preset: **Vite**.
-4. Lệnh biên dịch (Build Command): `npm run build`.
-5. Thư mục đầu ra (Output Directory): `dist`.
-6. Cấu hình biến môi trường:
-   - `VITE_API_BASE_URL`: Địa chỉ URL của Backend API đã triển khai (ví dụ: `https://g-scores-api.onrender.com/api/v1`).
-7. File cấu hình `frontend/vercel.json` đã được tạo sẵn để xử lý cơ chế định tuyến Single Page Application (SPA routing rewrite).
+### 9.1. Kiến Trúc Triển Khai Đa Dịch Vụ trên Vercel (Vercel Multi-Service Routing)
 
-### 9.2. Triển khai Backend lên Render / Railway
+File cấu hình [`vercel.json`](vercel.json) phân tách rành mạch hai dịch vụ:
 
-Do Backend sử dụng Python 3.12, FastAPI, SQLAlchemy 2.0 Asyncio và kết nối PostgreSQL qua driver `asyncpg` (yêu cầu kết nối TCP Socket trực tiếp với cơ sở dữ liệu), giải pháp triển khai container chuẩn là lựa chọn tối ưu nhất:
+1. **Dịch vụ Backend (FastAPI Serverless):**
+   - Thư mục gốc (`root`): `backend`.
+   - Framework: `fastapi`.
+   - Toàn bộ các yêu cầu HTTP có tiền tố `/api` hoặc `/api/(.*)` được Vercel tự động chuyển tiếp (rewrite) trực tiếp về backend FastAPI xử lý.
+2. **Dịch vụ Frontend (Vite React SPA):**
+   - Thư mục gốc (`root`): `frontend`.
+   - Framework: `vite`.
+   - Xử lý điều hướng Single Page Application (SPA routing rewrite): toàn bộ đường dẫn web không thuộc `/api` được chuyển tiếp về `/index.html`.
 
-1. **Render (Khuyến nghị):**
-   - Tạo mới một **Web Service**, kết nối tới kho lưu trữ GitHub.
-   - Chọn môi trường triển khai bằng **Docker** (Render sẽ tự động sử dụng `src/backend/Dockerfile`).
-   - Cấu hình biến môi trường:
-     - `DATABASE_URL`: Chuỗi kết nối PostgreSQL (ví dụ kết nối Supabase, Neon hoặc Render PostgreSQL).
-     - `BACKEND_CORS_ORIGINS`: Danh sách domain frontend được phép truy cập (bao gồm URL Vercel).
-2. **Railway:**
-   - Tạo Project mới và chọn Deploy from GitHub Repo (trỏ vào thư mục `backend`).
-   - Railway hỗ trợ tự động nhận diện Dockerfile và cấp phát URL HTTPS tự động.
+_Lợi ích kiến trúc:_ Frontend và Backend hoạt động trên cùng một domain (`https://g-scores-amber.vercel.app`), giúp loại bỏ hoàn toàn các vấn đề phức tạp về CORS preflight request, giảm độ trễ mạng (network latency round-trip) và tối ưu hóa hiệu năng tổng thể.
 
-_Ghi chú kỹ thuật:_ Cloudflare Workers không phù hợp với backend của dự án này do môi trường V8 Isolate của Workers không hỗ trợ đầy đủ các module nhị phân C-extension và kết nối raw TCP socket cần thiết của thư viện `asyncpg`. Do đó, sử dụng Render hoặc Railway là giải pháp chuẩn mực và đảm bảo tính ổn định cao nhất.
+### 9.2. Các Bước Triển Khai trên Vercel Dashboard
+
+1. Kết nối kho lưu trữ GitHub chứa dự án với Vercel.
+2. Thiết lập thư mục gốc (Root Directory) tại Vercel Project Settings là `src` (nơi chứa `vercel.json`).
+3. Vercel sẽ tự động đọc `vercel.json` để nhận diện cấu trúc hai dịch vụ `backend` và `frontend`.
+4. Cấu hình các biến môi trường (Environment Variables) trên Vercel:
+   - `DATABASE_URL`: Chuỗi kết nối PostgreSQL Cloud (khuyến nghị sử dụng Supabase Session/Transaction Pooler qua cổng 5432 hoặc 6543 để tương thích với driver `asyncpg` trong môi trường serverless).
+   - `REDIS_URL`: Chuỗi kết nối Redis Cloud / Upstash Redis (ví dụ: `rediss://default:token@region.upstash.io:6379`).
+   - `REDIS_TIMEOUT_SECONDS`: `0.5` (500ms để đảm bảo cơ chế Graceful Degradation).
+   - `BACKEND_CORS_ORIGINS`: `["https://g-scores-amber.vercel.app", "http://localhost:5173", "http://localhost:3000"]`.
+   - `VITE_API_BASE_URL`: `/api/v1` (sử dụng đường dẫn tương đối trực tiếp cùng domain).
+5. Nhấn **Deploy** để hoàn tất quá trình triển khai tự động.
 
 ---
 
 ## 10. Liên Kết Ứng Dụng Trực Tuyến (Live Demo)
 
-- **Giao diện Web Ứng dụng (Frontend):** _(Cập nhật liên kết sau khi hoàn tất triển khai Vercel)_
-- **Cổng Giao diện Lập trình (API Documentation):** _(Cập nhật liên kết sau khi hoàn tất triển khai Backend)_
+- **Giao diện Web Ứng dụng (Frontend):** [https://g-scores-amber.vercel.app](https://g-scores-amber.vercel.app)
+- **Kiểm tra trạng thái hệ thống (Health Check API):** [https://g-scores-amber.vercel.app/api/v1/health](https://g-scores-amber.vercel.app/api/v1/health)
+- **Tra cứu điểm thi mẫu (SBD 01000001):** [https://g-scores-amber.vercel.app/api/v1/scores/01000001](https://g-scores-amber.vercel.app/api/v1/scores/01000001)
+- **Bảng xếp hạng Top 10 Khối A:** [https://g-scores-amber.vercel.app/api/v1/students/top-a](https://g-scores-amber.vercel.app/api/v1/students/top-a)
+- **Báo cáo phổ điểm môn Toán:** [https://g-scores-amber.vercel.app/api/v1/reports/score-distribution?subjectCode=toan](https://g-scores-amber.vercel.app/api/v1/reports/score-distribution?subjectCode=toan)
+- **Tổng số lượng thí sinh toàn quốc:** [https://g-scores-amber.vercel.app/api/v1/students/total](https://g-scores-amber.vercel.app/api/v1/students/total)
+

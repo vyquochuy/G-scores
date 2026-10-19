@@ -2,6 +2,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.student import Student
+from app.repositories.statistic_repo import StatisticRepository
 
 
 class ScoreRepository:
@@ -35,3 +36,20 @@ class ScoreRepository:
             "LT_4": int(row.lt_4 or 0),
             "valid_count": int(row.valid_count or 0),
         }
+
+    @staticmethod
+    async def get_distribution(
+        session: AsyncSession, subject_code: str, column_name: str
+    ) -> dict[str, int]:
+        """Lay phan bo pho diem tu bang score_statistics, fallback sang query truc tiep neu chua co."""
+        stat = await StatisticRepository.get_score_statistic(session, subject_code)
+        if stat is not None:
+            return {
+                "GE_8": stat.ge_8,
+                "GE_6_LT_8": stat.ge_6_lt_8,
+                "GE_4_LT_6": stat.ge_4_lt_6,
+                "LT_4": stat.lt_4,
+                "valid_count": stat.valid_count,
+            }
+        return await ScoreRepository.get_distribution_by_column(session, column_name)
+

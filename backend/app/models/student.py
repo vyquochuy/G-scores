@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Float, Index, Integer, String
+from sqlalchemy import DateTime, Float, Index, Integer, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -31,4 +31,11 @@ class Student(Base):
 
     __table_args__ = (
         Index("idx_group_a_subjects", "toan", "vat_li", "hoa_hoc"),
+        Index(
+            "idx_students_group_a_sum",
+            text("(toan + vat_li + hoa_hoc) DESC"),
+            text("sbd ASC"),
+            postgresql_where=text("toan IS NOT NULL AND vat_li IS NOT NULL AND hoa_hoc IS NOT NULL"),
+        ),
     )
+

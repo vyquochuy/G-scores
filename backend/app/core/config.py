@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     POSTGRES_DB: str = "gscores"
     DATABASE_URL: str | None = None
 
+    # Redis Cache Configuration
+    REDIS_URL: str | None = "redis://localhost:6379/0"
+    REDIS_TIMEOUT_SECONDS: float = 0.5
+
+
     BACKEND_CORS_ORIGINS: list[str] = [
         "http://localhost:5173",
         "http://localhost:3000",

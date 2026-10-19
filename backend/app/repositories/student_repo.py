@@ -2,6 +2,7 @@ from sqlalchemy import Numeric, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.student import Student
+from app.repositories.statistic_repo import StatisticRepository
 
 
 class StudentRepository:
@@ -16,10 +17,14 @@ class StudentRepository:
 
     @staticmethod
     async def total_students(session: AsyncSession) -> int:
-        """Dem tong so thi sinh"""
+        """Dem tong so thi sinh (uu tien doc tu system_metrics, fallback sang count(*))."""
+        metric = await StatisticRepository.get_system_metric(session, "total_students")
+        if metric is not None:
+            return metric
         stmt = select(func.count()).select_from(Student)
         result = await session.execute(stmt)
-        return result.scalar_one_or_none()
+        return int(result.scalar_one_or_none() or 0)
+
 
     @staticmethod
     async def get_top_group_a(
