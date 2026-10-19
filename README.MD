@@ -6,9 +6,20 @@
 ## 1. Chức năng chính
 
 - **Tra cứu điểm thi:** Tra cứu kết quả cá nhân bằng số báo danh 8 chữ số, hiển thị điểm từng môn và tổng điểm tổ hợp Khối A khi đủ dữ liệu.
+
+![Giao diện tra cứu điểm thi](.github/images/02-tra-cuu.png)
+
 - **Phân tích phổ điểm:** Trực quan hóa số lượng và tỷ lệ thí sinh theo 4 khoảng điểm, hỗ trợ xem từng môn hoặc toàn bộ môn thi.
+
+![Biểu đồ thống kê phổ điểm](.github/images/03-thong-ke.png)
+
 - **Xếp hạng Khối A:** Hiển thị Top 10 thí sinh theo tổng điểm Toán, Vật lí và Hóa học; sử dụng số báo danh tăng dần làm tiêu chí phụ khi đồng điểm.
-- **Tổng quan hệ thống:** Hiển thị các chỉ số thống kê của kỳ thi và trạng thái hoạt động của backend, database.
+
+![Bảng xếp hạng Top 10 Khối A](.github/images/04-top-10.png)
+
+- **Tổng quan hệ thống:** Hiển thị dashboard tổng quan
+
+![Màn hình tổng quan hệ thống](.github/images/01-tong-quan.png)
 
 ## 2. Công nghệ sử dụng
 
