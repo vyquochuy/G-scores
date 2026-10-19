@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db_session
+from app.repositories.student_repo import StudentRepository
 from app.schemas.student import TopStudentsResponse
 from app.services.ranking_service import RankingService
-from app.repositories.student_repo import StudentRepository
 
 router = APIRouter()
 
